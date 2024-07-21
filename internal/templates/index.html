@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Logs</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .log-entry {
+            border: 1px solid #ccc;
+            margin-bottom: 20px;
+            padding: 10px;
+        }
+
+        .timestamp {
+            font-size: 0.8em;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>LLM Logs</h1>
+    {{range .}}
+    <div class="log-entry">
+        <p class="timestamp">{{.Timestamp}}</p>
+        <h3>Prompt:</h3>
+        <pre>{{.Prompt}}</pre>
+        <h3>Response:</h3>
+        <pre>{{.Response}}</pre>
+    </div>
+    {{end}}
+</body>
+
+</html>
