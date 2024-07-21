@@ -4,39 +4,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM Logs</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .log-entry {
-            border: 1px solid #ccc;
-            margin-bottom: 20px;
-            padding: 10px;
-        }
-
-        .timestamp {
-            font-size: 0.8em;
-            color: #666;
-        }
-    </style>
+    <title>tellm - LLM Logs</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </head>
 
-<body>
-    <h1>LLM Logs</h1>
-    {{range .}}
-    <div class="log-entry">
-        <p class="timestamp">{{.Timestamp}}</p>
-        <h3>Prompt:</h3>
-        <pre>{{.Prompt}}</pre>
-        <h3>Response:</h3>
-        <pre>{{.Response}}</pre>
+<body class="bg-gray-100 font-sans" x-data="{ selectedLog: null }">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8 text-center text-gray-800">tellm - LLM Logs</h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Log list -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">Log Entries</h2>
+                <div class="space-y-4 max-h-[70vh] overflow-y-auto">
+                    {{range $index, $entry := .}}
+                    <div class="p-4 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition"
+                        :class="{ 'bg-blue-50': selectedLog === {{$index}} }" @click="selectedLog = {{$index}}">
+                        <p class="text-sm text-gray-500">{{.Timestamp}}</p>
+                        <p class="text-gray-700 mt-2 truncate">{{.Prompt}}</p>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+
+            <!-- Log details -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">Log Details</h2>
+                <template x-if="selectedLog !== null">
+                    {{range $index, $entry := .}}
+                    <div x-show="selectedLog === {{$index}}">
+                        <p class="text-sm text-gray-500 mb-4">{{.Timestamp}}</p>
+                        <div class="mb-6">
+                            <h3 class="text-lg font-medium text-gray-700 mb-2">Prompt:</h3>
+                            <pre
+                                class="bg-gray-50 p-4 rounded-md text-sm text-gray-700 whitespace-pre-wrap">{{.Prompt}}</pre>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-medium text-gray-700 mb-2">Response:</h3>
+                            <pre
+                                class="bg-gray-50 p-4 rounded-md text-sm text-gray-700 whitespace-pre-wrap">{{.Response}}</pre>
+                        </div>
+                    </div>
+                    {{end}}
+                </template>
+                <template x-if="selectedLog === null">
+                    <p class="text-gray-500 italic">Select a log entry to view details</p>
+                </template>
+            </div>
+        </div>
     </div>
-    {{end}}
 </body>
 
 </html>

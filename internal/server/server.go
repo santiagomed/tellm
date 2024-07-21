@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"net/http"
 
-	"tellm/internal/logger"
+	"github.com/santiagomed/tellm/internal/logger"
 )
 
 type Server struct {

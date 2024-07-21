@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 
-	"tellm/internal/logger"
-	"tellm/internal/server"
+	"github.com/santiagomed/tellm/internal/logger"
+	"github.com/santiagomed/tellm/internal/server"
 )
 
 func main() {
