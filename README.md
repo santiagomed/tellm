@@ -13,7 +13,7 @@ tellm is a local LLM (Large Language Model) logging tool that allows you to reco
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/tellm.git
+git clone https://github.com/santiagomed/tellm.git
 cd tellm
 ```
 
@@ -43,7 +43,7 @@ To use the tellm SDK in your Go project:
 1. Add the SDK to your project:
 
 ```bash
-go get github.com/yourusername/tellm/sdk
+go get github.com/santiagomed/tellm/sdk
 ```
 
 2. Import and use the SDK in your code:
@@ -55,7 +55,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/yourusername/tellm/sdk"
+	"github.com/santiagomed/tellm/sdk"
 )
 
 func main() {

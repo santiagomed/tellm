@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 
 <head>
     <meta charset="UTF-8">
@@ -7,50 +7,111 @@
     <title>tellm - LLM Logs</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .main-container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panes-container {
+            flex-grow: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .pane-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .pane-header {
+            flex-shrink: 0;
+        }
+
+        .pane-content {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+
+        .log-content,
+        .markdown-content pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+    </style>
 </head>
 
-<body class="bg-gray-100 font-sans" x-data="{ selectedLog: null }">
-    <div class="container mx-auto px-4 py-8">
+<body class="bg-gray-100 font-sans h-full flex flex-col">
+    <div x-data="{
+        logs: {{ .Logs }},
+        selectedLog: null,
+        selectLog(index) {
+            this.selectedLog = this.logs[index];
+        },
+        renderMarkdown(text) {
+            text = text.replace(/^```markdown\n/, '').replace(/```$/, '');
+            return marked.parse(text);
+        }
+    }" class="container mx-auto px-4 py-8 flex-grow flex flex-col">
         <h1 class="text-3xl font-bold mb-8 text-center text-gray-800">tellm - LLM Logs</h1>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-grow">
             <!-- Log list -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold mb-4 text-gray-700">Log Entries</h2>
-                <div class="space-y-4 max-h-[70vh] overflow-y-auto">
-                    {{range $index, $entry := .}}
-                    <div class="p-4 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition"
-                        :class="{ 'bg-blue-50': selectedLog === {{$index}} }" @click="selectedLog = {{$index}}">
-                        <p class="text-sm text-gray-500">{{.Timestamp}}</p>
-                        <p class="text-gray-700 mt-2 truncate">{{.Prompt}}</p>
-                    </div>
-                    {{end}}
+            <div class="bg-white rounded-lg shadow-md pane-container">
+                <h2 class="text-xl font-semibold p-4 text-gray-700 sticky top-0 bg-white z-10">Log Entries</h2>
+                <div class="pane-content p-4">
+                    <template x-if="logs.length === 0">
+                        <p class="text-gray-500 italic">No logs available</p>
+                    </template>
+                    <template x-for="(entry, index) in logs" :key="index">
+                        <div class="p-4 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition mb-4"
+                            :class="{ 'bg-blue-50': selectedLog === entry }" @click="selectLog(index)">
+                            <p class="text-sm text-gray-500" x-text="entry.timestamp"></p>
+                            <p class="text-gray-700 mt-2 truncate" x-text="entry.prompt"></p>
+                        </div>
+                    </template>
                 </div>
             </div>
 
             <!-- Log details -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-xl font-semibold mb-4 text-gray-700">Log Details</h2>
-                <template x-if="selectedLog !== null">
-                    {{range $index, $entry := .}}
-                    <div x-show="selectedLog === {{$index}}">
-                        <p class="text-sm text-gray-500 mb-4">{{.Timestamp}}</p>
-                        <div class="mb-6">
-                            <h3 class="text-lg font-medium text-gray-700 mb-2">Prompt:</h3>
-                            <pre
-                                class="bg-gray-50 p-4 rounded-md text-sm text-gray-700 whitespace-pre-wrap">{{.Prompt}}</pre>
-                        </div>
+            <div class="bg-white rounded-lg shadow-md pane-container">
+                <h2 class="text-xl font-semibold p-4 text-gray-700 sticky top-0 bg-white z-10">Log Details</h2>
+                <div class="pane-content p-4">
+                    <template x-if="selectedLog">
                         <div>
-                            <h3 class="text-lg font-medium text-gray-700 mb-2">Response:</h3>
-                            <pre
-                                class="bg-gray-50 p-4 rounded-md text-sm text-gray-700 whitespace-pre-wrap">{{.Response}}</pre>
+                            <p class="text-sm text-gray-500 mb-4" x-text="selectedLog.timestamp"></p>
+                            <div class="mb-6">
+                                <h3 class="text-lg font-medium text-gray-700 mb-2">Prompt:</h3>
+                                <pre
+                                    class="bg-gray-50 p-4 rounded-md text-sm text-gray-700 whitespace-pre-wrap break-words overflow-x-auto"><code x-text="selectedLog.prompt"></code></pre>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-medium text-gray-700 mb-2">Response:</h3>
+                                <div
+                                    class="bg-gray-50 p-4 rounded-md text-sm text-gray-700 markdown-content log-content">
+                                    <div class="prose prose-sm max-w-none"
+                                        x-html="renderMarkdown(selectedLog.response)"></div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    {{end}}
-                </template>
-                <template x-if="selectedLog === null">
-                    <p class="text-gray-500 italic">Select a log entry to view details</p>
-                </template>
+                    </template>
+                    <template x-if="!selectedLog">
+                        <p class="text-gray-500 italic">Select a log entry to view details</p>
+                    </template>
+                </div>
             </div>
         </div>
     </div>

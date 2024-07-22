@@ -3,17 +3,23 @@ package server
 import (
 	"encoding/json"
 	"html/template"
+	"log"
 	"net/http"
+	"path/filepath"
 
 	"github.com/santiagomed/tellm/internal/logger"
 )
 
 type Server struct {
-	logger *logger.Logger
+	logger      *logger.Logger
+	templateDir string
 }
 
-func NewServer(logger *logger.Logger) *Server {
-	return &Server{logger: logger}
+func NewServer(logger *logger.Logger, templateDir string) *Server {
+	return &Server{
+		logger:      logger,
+		templateDir: templateDir,
+	}
 }
 
 func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
@@ -36,9 +42,12 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	logs, err := s.logger.GetLogs()
 	if err != nil {
-		http.Error(w, "Failed to retrieve logs", http.StatusInternalServerError)
+		http.Error(w, "Failed to retrieve logs: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Debug: Print the number of logs retrieved
+	log.Printf("Retrieved %d logs", len(logs))
 
 	if r.Header.Get("Accept") == "application/json" {
 		w.Header().Set("Content-Type", "application/json")
@@ -46,14 +55,33 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl, err := template.ParseFiles("templates/index.html")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm/marked/ 'unsafe-eval'")
+
+	tmplPath := filepath.Join(s.templateDir, "index.html")
+	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {
-		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
+		http.Error(w, "Failed to parse template: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := tmpl.Execute(w, logs); err != nil {
-		http.Error(w, "Failed to render template", http.StatusInternalServerError)
+	// Convert logs to JSON for Alpine.js
+	logsJSON, err := json.Marshal(logs)
+	if err != nil {
+		http.Error(w, "Failed to marshal logs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Debug: Print the JSON string
+	log.Printf("Logs JSON: %s", string(logsJSON))
+
+	data := struct {
+		Logs template.JS
+	}{
+		Logs: template.JS(logsJSON),
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, "Failed to render template: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 }

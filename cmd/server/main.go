@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"path/filepath"
 
 	"github.com/santiagomed/tellm/internal/logger"
 	"github.com/santiagomed/tellm/internal/server"
@@ -10,7 +11,11 @@ import (
 
 func main() {
 	l := logger.NewLogger("llm_logs.json")
-	s := server.NewServer(l)
+
+	// Adjust this path according to your project structure
+	templateDir := filepath.Join(".", "internal", "templates")
+
+	s := server.NewServer(l, templateDir)
 
 	http.HandleFunc("/log", s.HandleLog)
 	http.HandleFunc("/", s.HandleIndex)
