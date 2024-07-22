@@ -71,9 +71,6 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Debug: Print the JSON string
-	log.Printf("Logs JSON: %s", string(logsJSON))
-
 	data := struct {
 		Logs template.JS
 	}{
