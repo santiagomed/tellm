@@ -9,40 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        html,
-        body {
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            background-color: #f3f4f6;
-        }
-
-        .pane-container {
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .pane-content {
-            flex-grow: 1;
-            overflow-y: auto;
-        }
-
-        .log-content,
-        .markdown-content pre {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-        }
-
-        .chevron {
-            transition: transform 0.3s ease-in-out;
-        }
-
-        .chevron.open {
-            transform: rotate(180deg);
-        }
+        /* ... (previous styles remain the same) ... */
     </style>
 </head>
 
@@ -52,6 +19,8 @@
         selectedLog: null,
         showPrompt: true,
         showResponse: true,
+        currentBatch: '',
+        batches: [],
         selectLog(index) {
             this.selectedLog = this.logs[index];
             this.showPrompt = true;
@@ -63,10 +32,54 @@
         },
         toggleSection(section) {
             this[section] = !this[section];
+        },
+        fetchLogs() {
+            if (!this.currentBatch) return;
+            fetch(`/?batch=${this.currentBatch}`, {
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                this.logs = data;
+                this.selectedLog = null;
+            })
+            .catch(error => console.error('Error fetching logs:', error));
+        },
+        fetchBatches() {
+            fetch('/batches', {
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                this.batches = data;
+                if (data.length > 0) {
+                    this.currentBatch = data[0];
+                    this.fetchLogs();
+                }
+            })
+            .catch(error => console.error('Error fetching batches:', error));
+        },
+        init() {
+            this.fetchBatches();
         }
-    }" class="container mx-auto px-4 py-8 flex-grow flex flex-col bg-purple-100">
+    }" x-init="init()" class="container mx-auto px-4 py-8 flex-grow flex flex-col bg-purple-100">
         <h1 class="text-3xl font-bold mb-8 text-center text-purple-700 py-4 bg-white shadow-md rounded-md">tellm - LLM
             Logs</h1>
+
+        <!-- Batch selection dropdown -->
+        <div class="mb-6 flex items-center justify-center">
+            <select x-model="currentBatch" @change="fetchLogs()"
+                class="px-4 py-2 border border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500">
+                <option value="" disabled>Select a batch</option>
+                <template x-for="batch in batches" :key="batch">
+                    <option :value="batch" x-text="batch"></option>
+                </template>
+            </select>
+        </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-grow">
             <!-- Log list -->

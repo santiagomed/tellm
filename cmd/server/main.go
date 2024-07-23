@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	l := logger.NewLogger("llm_logs.json")
+	l := logger.NewLogger()
 
 	// Adjust this path according to your project structure
 	templateDir := filepath.Join(".", "internal", "templates")
@@ -19,6 +19,7 @@ func main() {
 
 	http.HandleFunc("/log", s.HandleLog)
 	http.HandleFunc("/", s.HandleIndex)
+	http.HandleFunc("/batches", s.HandleBatches)
 
 	log.Println("Server starting on :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

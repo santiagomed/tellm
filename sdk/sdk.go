@@ -25,8 +25,9 @@ type LogEntry struct {
 }
 
 // Log sends a log entry to the server
-func (c *Client) Log(prompt, response string) error {
+func (c *Client) Log(batch, prompt, response string) error {
 	data := url.Values{}
+	data.Set("batch", batch)
 	data.Set("prompt", prompt)
 	data.Set("response", response)
 
@@ -44,8 +45,8 @@ func (c *Client) Log(prompt, response string) error {
 }
 
 // GetLogs retrieves all log entries from the server
-func (c *Client) GetLogs() ([]LogEntry, error) {
-	resp, err := http.Get(c.BaseURL)
+func (c *Client) GetLogs(batch string) ([]LogEntry, error) {
+	resp, err := http.Get(c.BaseURL + "/?batch=" + url.QueryEscape(batch))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs: %w", err)
 	}

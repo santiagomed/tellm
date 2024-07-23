@@ -28,10 +28,11 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	batch := r.FormValue("batch")
 	prompt := r.FormValue("prompt")
 	response := r.FormValue("response")
 
-	if err := s.logger.Log(prompt, response); err != nil {
+	if err := s.logger.Log(batch, prompt, response); err != nil {
 		http.Error(w, "Failed to log entry", http.StatusInternalServerError)
 		return
 	}
@@ -40,7 +41,8 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
-	logs, err := s.logger.GetLogs()
+	batch := r.URL.Query().Get("batch")
+	logs, err := s.logger.GetLogs(batch)
 	if err != nil {
 		http.Error(w, "Failed to retrieve logs: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -81,4 +83,11 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to render template: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+func (s *Server) HandleBatches(w http.ResponseWriter, r *http.Request) {
+	batches := s.logger.GetBatches()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(batches)
 }

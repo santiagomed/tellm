@@ -3,6 +3,7 @@ package logger
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -14,17 +15,35 @@ type LogEntry struct {
 }
 
 type Logger struct {
-	filename string
-	mu       sync.Mutex
+	outDir  string
+	batches []string
+	mu      sync.Mutex
 }
 
-func NewLogger(filename string) *Logger {
-	return &Logger{filename: filename}
+func NewLogger() *Logger {
+	outDir := "logs"
+	var batches []string
+	if _, err := os.Stat(outDir); os.IsNotExist(err) {
+		os.Mkdir(outDir, 0755)
+		batches = []string{}
+	} else {
+		files, err := os.ReadDir(outDir)
+		if err != nil {
+			panic(err)
+		}
+		for _, file := range files {
+			batches = append(batches, file.Name())
+		}
+	}
+
+	return &Logger{outDir: outDir, batches: batches}
 }
 
-func (l *Logger) Log(prompt, response string) error {
+func (l *Logger) Log(filename, prompt, response string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	path := filepath.Join(l.outDir, filename)
 
 	entry := LogEntry{
 		Timestamp: time.Now(),
@@ -32,7 +51,7 @@ func (l *Logger) Log(prompt, response string) error {
 		Response:  response,
 	}
 
-	file, err := os.OpenFile(l.filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
@@ -42,11 +61,13 @@ func (l *Logger) Log(prompt, response string) error {
 	return encoder.Encode(entry)
 }
 
-func (l *Logger) GetLogs() ([]LogEntry, error) {
+func (l *Logger) GetLogs(filename string) ([]LogEntry, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	file, err := os.OpenFile(l.filename, os.O_RDONLY, 0644)
+	path := filepath.Join(l.outDir, filename)
+
+	file, err := os.OpenFile(path, os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -63,4 +84,11 @@ func (l *Logger) GetLogs() ([]LogEntry, error) {
 	}
 
 	return logs, nil
+}
+
+func (l *Logger) GetBatches() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.batches
 }
