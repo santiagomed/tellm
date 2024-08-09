@@ -14,9 +14,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var modelPrices = map[string]struct {
+type ModelPrice struct {
 	Input, Output float64
-}{
+}
+
+var modelPrices = map[string]ModelPrice{
 	"gpt-4o": {
 		Input:  5,
 		Output: 15,
@@ -30,21 +32,21 @@ var modelPrices = map[string]struct {
 var perTokens = 1000000
 
 type LogEntry struct {
-	ID           primitive.ObjectID `bson:"_id,omitempty"`
-	BatchID      primitive.ObjectID `bson:"batchId"`
-	Timestamp    time.Time          `bson:"timestamp"`
-	Prompt       string             `bson:"prompt"`
-	Response     string             `bson:"response"`
-	InputTokens  int                `bson:"inputTokens"`
-	OutputTokens int                `bson:"outputTokens"`
+	ID           string    `bson:"_id,omitempty"`
+	BatchID      string    `bson:"batchId"`
+	Timestamp    time.Time `bson:"timestamp"`
+	Prompt       string    `bson:"prompt"`
+	Response     string    `bson:"response"`
+	InputTokens  int       `bson:"inputTokens"`
+	OutputTokens int       `bson:"outputTokens"`
 }
 
 type Batch struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty"`
-	Name        string             `bson:"name"`
-	CreatedAt   time.Time          `bson:"createdAt"`
-	TotalTokens int                `bson:"totalTokens"`
-	TotalCost   float64            `bson:"totalCost"`
+	ID          string    `bson:"_id,omitempty"`
+	BatchID     string    `bson:"batchId"`
+	CreatedAt   time.Time `bson:"createdAt"`
+	TotalTokens int       `bson:"totalTokens"`
+	TotalCost   float64   `bson:"totalCost"`
 }
 
 type Logger struct {
@@ -76,7 +78,6 @@ func (l *Logger) CreateBatch(name string) (primitive.ObjectID, error) {
 	defer l.mu.Unlock()
 
 	batch := Batch{
-		Name:      name,
 		CreatedAt: time.Now(),
 	}
 
@@ -93,14 +94,8 @@ func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outpu
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Convert string batchID to ObjectID
-	objectID, err := primitive.ObjectIDFromHex(batchID)
-	if err != nil {
-		return fmt.Errorf("invalid batchID: %v", err)
-	}
-
 	entry := LogEntry{
-		BatchID:      objectID,
+		BatchID:      batchID,
 		Timestamp:    time.Now(),
 		Prompt:       prompt,
 		Response:     response,
@@ -108,22 +103,24 @@ func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outpu
 		OutputTokens: outputTokens,
 	}
 
-	_, err = l.db.Collection("logs").InsertOne(context.Background(), entry)
+	_, err := l.db.Collection("logs").InsertOne(context.Background(), entry)
 	if err != nil {
 		return err
 	}
 
 	pricing := modelPrices[model]
+	if pricing == (ModelPrice{}) {
+		return fmt.Errorf("model not found: %s", model)
+	}
 	totalTokens := inputTokens + outputTokens
 	totalCost := calculateCost(pricing, inputTokens, outputTokens)
 
 	opts := options.Update().SetUpsert(true)
 	_, err = l.db.Collection("batches").UpdateOne(
 		context.Background(),
-		bson.M{"_id": objectID},
+		bson.M{"batchId": batchID},
 		bson.M{
 			"$set": bson.M{
-				"name":      "Auto-created batch",
 				"createdAt": time.Now(),
 			},
 			"$inc": bson.M{
@@ -205,9 +202,7 @@ func (l *Logger) Close() {
 }
 
 // Implement this function based on your pricing model
-func calculateCost(pricing struct {
-	Input, Output float64
-}, inputTokens, outputTokens int) float64 {
+func calculateCost(pricing ModelPrice, inputTokens, outputTokens int) float64 {
 	totalCost := (float64(inputTokens) / float64(perTokens)) * pricing.Input
 	totalCost += (float64(outputTokens) / float64(perTokens)) * pricing.Output
 	return totalCost
