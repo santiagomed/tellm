@@ -10,7 +10,10 @@ import (
 )
 
 func main() {
-	l := logger.NewLogger()
+	l, err := logger.NewLogger()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Adjust this path according to your project structure
 	templateDir := filepath.Join(".", "internal", "templates")
@@ -19,10 +22,10 @@ func main() {
 
 	http.HandleFunc("/log", s.HandleLog)
 	http.HandleFunc("/", s.HandleIndex)
-	http.HandleFunc("/batches", s.HandleBatches)
+	http.HandleFunc("/{batchId}", s.HandleBatch) // Add this line
 
-	log.Println("Server starting on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	log.Println("Server starting on :8000")
+	if err := http.ListenAndServe(":8000", nil); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -1,94 +1,214 @@
 package logger
 
 import (
-	"encoding/json"
+	"context"
+	"fmt"
+	"log"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+var modelPrices = map[string]struct {
+	Input, Output float64
+}{
+	"gpt-4o": {
+		Input:  5,
+		Output: 15,
+	},
+	"gpt-4o-mini": {
+		Input:  0.15,
+		Output: 0.6,
+	},
+}
+
+var perTokens = 1000000
+
 type LogEntry struct {
-	Timestamp time.Time `json:"timestamp"`
-	Prompt    string    `json:"prompt"`
-	Response  string    `json:"response"`
+	ID           primitive.ObjectID `bson:"_id,omitempty"`
+	BatchID      primitive.ObjectID `bson:"batchId"`
+	Timestamp    time.Time          `bson:"timestamp"`
+	Prompt       string             `bson:"prompt"`
+	Response     string             `bson:"response"`
+	InputTokens  int                `bson:"inputTokens"`
+	OutputTokens int                `bson:"outputTokens"`
+}
+
+type Batch struct {
+	ID          primitive.ObjectID `bson:"_id,omitempty"`
+	Name        string             `bson:"name"`
+	CreatedAt   time.Time          `bson:"createdAt"`
+	TotalTokens int                `bson:"totalTokens"`
+	TotalCost   float64            `bson:"totalCost"`
 }
 
 type Logger struct {
-	outDir  string
-	batches []string
-	mu      sync.Mutex
+	client *mongo.Client
+	db     *mongo.Database
+	logger *log.Logger
+	mu     sync.Mutex
 }
 
-func NewLogger() *Logger {
-	outDir := "logs"
-	var batches []string
-	if _, err := os.Stat(outDir); os.IsNotExist(err) {
-		os.Mkdir(outDir, 0755)
-		batches = []string{}
-	} else {
-		files, err := os.ReadDir(outDir)
-		if err != nil {
-			panic(err)
-		}
-		for _, file := range files {
-			batches = append(batches, file.Name())
-		}
-	}
-
-	return &Logger{outDir: outDir, batches: batches}
-}
-
-func (l *Logger) Log(filename, prompt, response string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	path := filepath.Join(l.outDir, filename)
-
-	entry := LogEntry{
-		Timestamp: time.Now(),
-		Prompt:    prompt,
-		Response:  response,
-	}
-
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	return encoder.Encode(entry)
-}
-
-func (l *Logger) GetLogs(filename string) ([]LogEntry, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	path := filepath.Join(l.outDir, filename)
-
-	file, err := os.OpenFile(path, os.O_RDONLY, 0644)
+func NewLogger() (*Logger, error) {
+	clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
+	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
-	var logs []LogEntry
-	decoder := json.NewDecoder(file)
-	for decoder.More() {
-		var entry LogEntry
-		if err := decoder.Decode(&entry); err != nil {
-			return nil, err
-		}
-		logs = append(logs, entry)
-	}
+	db := client.Database("tellm")
+	logger := log.New(os.Stdout, "", log.LstdFlags)
 
-	return logs, nil
+	return &Logger{
+		client: client,
+		db:     db,
+		logger: logger,
+	}, nil
 }
 
-func (l *Logger) GetBatches() []string {
+func (l *Logger) CreateBatch(name string) (primitive.ObjectID, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	return l.batches
+	batch := Batch{
+		Name:      name,
+		CreatedAt: time.Now(),
+	}
+
+	result, err := l.db.Collection("batches").InsertOne(context.TODO(), batch)
+	if err != nil {
+		return primitive.NilObjectID, err
+	}
+
+	l.logger.Printf("Created new batch: %s\n", name)
+	return result.InsertedID.(primitive.ObjectID), nil
+}
+
+func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outputTokens int) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Convert string batchID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(batchID)
+	if err != nil {
+		return fmt.Errorf("invalid batchID: %v", err)
+	}
+
+	entry := LogEntry{
+		BatchID:      objectID,
+		Timestamp:    time.Now(),
+		Prompt:       prompt,
+		Response:     response,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+	}
+
+	_, err = l.db.Collection("logs").InsertOne(context.Background(), entry)
+	if err != nil {
+		return err
+	}
+
+	pricing := modelPrices[model]
+	totalTokens := inputTokens + outputTokens
+	totalCost := calculateCost(pricing, inputTokens, outputTokens)
+
+	opts := options.Update().SetUpsert(true)
+	_, err = l.db.Collection("batches").UpdateOne(
+		context.Background(),
+		bson.M{"_id": objectID},
+		bson.M{
+			"$set": bson.M{
+				"name":      "Auto-created batch",
+				"createdAt": time.Now(),
+			},
+			"$inc": bson.M{
+				"totalTokens": totalTokens,
+				"totalCost":   totalCost,
+			},
+		},
+		opts,
+	)
+	if err != nil {
+		return err
+	}
+
+	l.logger.Printf("Logged entry to batch: %s\n", batchID)
+	return nil
+}
+
+func (l *Logger) GetLogs(batchID string) (map[string]interface{}, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	objectID, err := primitive.ObjectIDFromHex(batchID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid batchID: %v", err)
+	}
+
+	var logs []LogEntry
+	cursor, err := l.db.Collection("logs").Find(context.TODO(), bson.M{"batchId": objectID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.TODO())
+
+	if err = cursor.All(context.TODO(), &logs); err != nil {
+		return nil, err
+	}
+
+	var batch Batch
+	err = l.db.Collection("batches").FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&batch)
+	if err != nil {
+		return nil, err
+	}
+
+	result := map[string]interface{}{
+		"logs": logs,
+		"batchInfo": map[string]interface{}{
+			"totalTokens": batch.TotalTokens,
+			"totalCost":   batch.TotalCost,
+		},
+	}
+
+	l.logger.Printf("Retrieved %d logs and batch info for batch: %s\n", len(logs), batchID)
+	return result, nil
+}
+
+func (l *Logger) GetBatches() ([]Batch, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var batches []Batch
+	cursor, err := l.db.Collection("batches").Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.TODO())
+
+	if err = cursor.All(context.TODO(), &batches); err != nil {
+		return nil, err
+	}
+
+	l.logger.Printf("Retrieved %d batches\n", len(batches))
+	return batches, nil
+}
+
+func (l *Logger) Close() {
+	if l.client != nil {
+		l.client.Disconnect(context.TODO())
+	}
+}
+
+// Implement this function based on your pricing model
+func calculateCost(pricing struct {
+	Input, Output float64
+}, inputTokens, outputTokens int) float64 {
+	totalCost := (float64(inputTokens) / float64(perTokens)) * pricing.Input
+	totalCost += (float64(outputTokens) / float64(perTokens)) * pricing.Output
+	return totalCost
 }

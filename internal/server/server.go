@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/santiagomed/tellm/internal/logger"
 )
@@ -23,16 +25,39 @@ func NewServer(logger *logger.Logger, templateDir string) *Server {
 }
 
 func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received request: %s %s", r.Method, r.URL.Path)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	batch := r.FormValue("batch")
-	prompt := r.FormValue("prompt")
-	response := r.FormValue("response")
+	inputTokens, err := strconv.Atoi(r.FormValue("input_tokens"))
+	if err != nil {
+		http.Error(w, "Invalid input tokens", http.StatusBadRequest)
+		return
+	}
+	outputTokens, err := strconv.Atoi(r.FormValue("output_tokens"))
+	if err != nil {
+		http.Error(w, "Invalid output tokens", http.StatusBadRequest)
+		return
+	}
+	e := struct {
+		batch        string
+		prompt       string
+		response     string
+		model        string
+		inputTokens  int
+		outputTokens int
+	}{
+		batch:        r.FormValue("batch"),
+		prompt:       r.FormValue("prompt"),
+		response:     r.FormValue("response"),
+		model:        r.FormValue("model"),
+		inputTokens:  inputTokens,
+		outputTokens: outputTokens,
+	}
 
-	if err := s.logger.Log(batch, prompt, response); err != nil {
+	if err := s.logger.Log(e.batch, e.prompt, e.response, e.model, e.inputTokens, e.outputTokens); err != nil {
 		http.Error(w, "Failed to log entry", http.StatusInternalServerError)
 		return
 	}
@@ -41,19 +66,9 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
-	batch := r.URL.Query().Get("batch")
-	logs, err := s.logger.GetLogs(batch)
+	batches, err := s.logger.GetBatches()
 	if err != nil {
-		http.Error(w, "Failed to retrieve logs: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Debug: Print the number of logs retrieved
-	log.Printf("Retrieved %d logs", len(logs))
-
-	if r.Header.Get("Accept") == "application/json" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(logs)
+		http.Error(w, "Failed to retrieve batches", http.StatusInternalServerError)
 		return
 	}
 
@@ -66,17 +81,15 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert logs to JSON for Alpine.js
-	logsJSON, err := json.Marshal(logs)
-	if err != nil {
-		http.Error(w, "Failed to marshal logs: "+err.Error(), http.StatusInternalServerError)
-		return
+	batchIds := make([]string, len(batches))
+	for i, batch := range batches {
+		batchIds[i] = batch.ID.Hex()
 	}
 
 	data := struct {
-		Logs template.JS
+		Batches []string
 	}{
-		Logs: template.JS(logsJSON),
+		Batches: batchIds,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -85,9 +98,14 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) HandleBatches(w http.ResponseWriter, r *http.Request) {
-	batches := s.logger.GetBatches()
+func (s *Server) HandleBatch(w http.ResponseWriter, r *http.Request) {
+	batchId := strings.TrimPrefix(r.URL.Path, "/")
+	logs, err := s.logger.GetLogs(batchId)
+	if err != nil {
+		http.Error(w, "Failed to retrieve logs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(batches)
+	json.NewEncoder(w).Encode(logs)
 }

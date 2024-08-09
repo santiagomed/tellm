@@ -9,18 +9,51 @@
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        /* ... (previous styles remain the same) ... */
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #f3f4f6;
+        }
+
+        .pane-container {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .pane-content {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+
+        .log-content,
+        .markdown-content pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .chevron {
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .chevron.open {
+            transform: rotate(180deg);
+        }
     </style>
 </head>
 
 <body class="font-sans h-full flex flex-col bg-purple-100">
     <div x-data="{
-        logs: {{ .Logs }},
+        logs: [],
         selectedLog: null,
         showPrompt: true,
         showResponse: true,
-        currentBatch: '',
-        batches: [],
+        selectedBatch: '',
+        batchInfo: null,
         selectLog(index) {
             this.selectedLog = this.logs[index];
             this.showPrompt = true;
@@ -33,52 +66,47 @@
         toggleSection(section) {
             this[section] = !this[section];
         },
-        fetchLogs() {
-            if (!this.currentBatch) return;
-            fetch(`/?batch=${this.currentBatch}`, {
-                headers: {
-                    'Accept': 'application/json'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                this.logs = data;
-                this.selectedLog = null;
-            })
-            .catch(error => console.error('Error fetching logs:', error));
+        loadBatch(batchId) {
+            this.selectedBatch = batchId;
+            fetch('/' + batchId)
+                .then(response => response.json())
+                .then(data => {
+                    this.logs = data.logs;
+                    this.batchInfo = data.batchInfo;
+                    this.selectedLog = null;
+                })
+                .catch(error => console.error('Error:', error));
         },
-        fetchBatches() {
-            fetch('/batches', {
-                headers: {
-                    'Accept': 'application/json'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                this.batches = data;
-                if (data.length > 0) {
-                    this.currentBatch = data[0];
-                    this.fetchLogs();
-                }
-            })
-            .catch(error => console.error('Error fetching batches:', error));
+        formatNumber(num) {
+            return num.toLocaleString();
         },
-        init() {
-            this.fetchBatches();
+        formatCost(cost) {
+            return '$' + cost.toFixed(2);
         }
-    }" x-init="init()" class="container mx-auto px-4 py-8 flex-grow flex flex-col bg-purple-100">
+    }" class="container mx-auto px-4 py-8 flex-grow flex flex-col bg-purple-100">
         <h1 class="text-3xl font-bold mb-8 text-center text-purple-700 py-4 bg-white shadow-md rounded-md">tellm - LLM
             Logs</h1>
 
-        <!-- Batch selection dropdown -->
+        <!-- Batch selection form -->
         <div class="mb-6 flex items-center justify-center">
-            <select x-model="currentBatch" @change="fetchLogs()"
-                class="px-4 py-2 border border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500">
-                <option value="" disabled>Select a batch</option>
-                <template x-for="batch in batches" :key="batch">
-                    <option :value="batch" x-text="batch"></option>
-                </template>
+            <select x-model="selectedBatch" @change="loadBatch(selectedBatch)"
+                class="px-4 py-2 border border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                {{ if eq (len .Batches) 0 }}disabled{{ end }}>
+                <option value="" disabled selected>
+                    {{ if eq (len .Batches) 0 }}No batches available{{ else }}Select a batch{{ end }}
+                </option>
+                {{ range .Batches }}
+                <option value="{{ . }}">{{ . }}</option>
+                {{ end }}
             </select>
+        </div>
+
+        <!-- Batch Info -->
+        <div x-show="batchInfo" class="mb-6 bg-white p-4 rounded-md shadow-md">
+            <h2 class="text-xl font-semibold mb-2 text-purple-700">Batch Information</h2>
+            <p><span class="font-medium">Total Tokens:</span> <span x-text="formatNumber(batchInfo.totalTokens)"></span>
+            </p>
+            <p><span class="font-medium">Total Cost:</span> <span x-text="formatCost(batchInfo.totalCost)"></span></p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-grow">
@@ -86,16 +114,28 @@
             <div class="bg-white rounded-md shadow-md pane-container">
                 <h2
                     class="text-xl font-semibold p-4 text-purple-700 sticky top-0 bg-white z-10 border-b border-gray-200">
-                    Log Entries</h2>
+                    Log Entries
+                </h2>
                 <div class="pane-content p-4">
                     <template x-if="logs.length === 0">
-                        <p class="text-gray-500 italic">No logs available</p>
+                        <p class="text-gray-500 italic">
+                            {{ if eq (len .Batches) 0 }}
+                            No batches available
+                            {{ else }}
+                            No logs available for the selected batch
+                            {{ end }}
+                        </p>
                     </template>
                     <template x-for="(entry, index) in logs" :key="index">
                         <div class="p-4 border border-gray-200 rounded-md cursor-pointer hover:bg-purple-50 transition mb-4"
                             :class="{ 'bg-purple-100': selectedLog === entry }" @click="selectLog(index)">
                             <p class="text-sm text-purple-600" x-text="entry.timestamp"></p>
                             <p class="text-gray-700 mt-2 truncate" x-text="entry.prompt"></p>
+                            <p class="text-sm text-gray-500 mt-1">
+                                <span x-text="'Input Tokens: ' + formatNumber(entry.inputTokens)"></span>
+                                <span class="mx-2">|</span>
+                                <span x-text="'Output Tokens: ' + formatNumber(entry.outputTokens)"></span>
+                            </p>
                         </div>
                     </template>
                 </div>
@@ -105,11 +145,17 @@
             <div class="bg-white rounded-md shadow-md pane-container">
                 <h2
                     class="text-xl font-semibold p-4 text-purple-700 sticky top-0 bg-white z-10 border-b border-gray-200">
-                    Log Details</h2>
+                    Log Details
+                </h2>
                 <div class="pane-content p-4">
                     <template x-if="selectedLog">
                         <div>
                             <p class="text-sm text-purple-600 mb-4" x-text="selectedLog.timestamp"></p>
+                            <p class="text-sm text-gray-500 mb-4">
+                                <span x-text="'Input Tokens: ' + formatNumber(selectedLog.inputTokens)"></span>
+                                <span class="mx-2">|</span>
+                                <span x-text="'Output Tokens: ' + formatNumber(selectedLog.outputTokens)"></span>
+                            </p>
                             <div class="mb-6">
                                 <div class="flex justify-between items-center cursor-pointer bg-purple-100 p-2 rounded-md"
                                     @click="toggleSection('showPrompt')">
