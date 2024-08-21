@@ -94,3 +94,18 @@ func (c *Client) GetBatches() ([]string, error) {
 
 	return data.Batches, nil
 }
+
+// CreateBatch creates a new batch on the server
+func (c *Client) CreateBatch(id, description string) (string, error) {
+	resp, err := http.PostForm(c.BaseURL+"/batches", url.Values{"id": {id}, "description": {description}})
+	if err != nil {
+		return "", fmt.Errorf("failed to create batch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return id, nil
+}

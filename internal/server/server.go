@@ -2,10 +2,8 @@ package server
 
 import (
 	"encoding/json"
-	"html/template"
 	"log"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -69,7 +67,7 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGetBatches(w http.ResponseWriter, r *http.Request) {
 	batches, err := s.logger.GetBatches()
 	if err != nil {
 		log.Printf("Failed to retrieve batches: %v", err)
@@ -77,30 +75,10 @@ func (s *Server) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm/marked/ 'unsafe-eval'")
-
-	tmplPath := filepath.Join(s.templateDir, "index.html")
-	tmpl, err := template.ParseFiles(tmplPath)
-	if err != nil {
-		log.Printf("Failed to parse template: %v", err)
-		http.Error(w, "Failed to parse template", http.StatusInternalServerError)
-		return
-	}
-
-	batchIds := make([]string, len(batches))
-	for i, batch := range batches {
-		batchIds[i] = batch.ID
-	}
-
-	data := struct {
-		Batches []string
-	}{
-		Batches: batchIds,
-	}
-
-	if err := tmpl.Execute(w, data); err != nil {
-		log.Printf("Failed to render template: %v", err)
-		http.Error(w, "Failed to render template", http.StatusInternalServerError)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(batches); err != nil {
+		log.Printf("Failed to encode batches: %v", err)
+		http.Error(w, "Failed to encode batches", http.StatusInternalServerError)
 		return
 	}
 }
@@ -116,4 +94,20 @@ func (s *Server) HandleBatch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+func (s *Server) HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
+	id := r.FormValue("id")
+	description := r.FormValue("description")
+
+	batchID, err := s.logger.CreateBatch(id, description)
+	if err != nil {
+		log.Printf("Failed to create batch: %v", err)
+		http.Error(w, "Failed to create batch", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"batch_id": batchID.String()})
 }

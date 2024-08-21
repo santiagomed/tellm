@@ -2,7 +2,11 @@ module github.com/santiagomed/tellm
 
 go 1.19
 
-require go.mongodb.org/mongo-driver v1.16.1
+require (
+	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-chi/cors v1.2.1
+	go.mongodb.org/mongo-driver v1.16.1
+)
 
 require (
 	github.com/golang/snappy v0.0.4 // indirect

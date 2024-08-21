@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -32,28 +31,27 @@ var modelPrices = map[string]ModelPrice{
 var perTokens = 1000000
 
 type LogEntry struct {
-	ID           string    `bson:"_id,omitempty"`
-	BatchID      string    `bson:"batchId"`
-	Timestamp    time.Time `bson:"timestamp"`
-	Prompt       string    `bson:"prompt"`
-	Response     string    `bson:"response"`
-	InputTokens  int       `bson:"inputTokens"`
-	OutputTokens int       `bson:"outputTokens"`
+	ID           string    `bson:"_id,omitempty" json:"id,omitempty"`
+	BatchID      string    `bson:"batchId" json:"batchId"`
+	Timestamp    time.Time `bson:"timestamp" json:"timestamp"`
+	Prompt       string    `bson:"prompt" json:"prompt"`
+	Response     string    `bson:"response" json:"response"`
+	InputTokens  int       `bson:"inputTokens" json:"inputTokens"`
+	OutputTokens int       `bson:"outputTokens" json:"outputTokens"`
 }
 
 type Batch struct {
-	ID          string    `bson:"_id,omitempty"`
-	BatchID     string    `bson:"batchId"`
-	CreatedAt   time.Time `bson:"createdAt"`
-	TotalTokens int       `bson:"totalTokens"`
-	TotalCost   float64   `bson:"totalCost"`
+	ID          string    `bson:"_id" json:"id"`
+	Description string    `bson:"description" json:"description"`
+	CreatedAt   time.Time `bson:"createdAt" json:"createdAt"`
+	TotalTokens int       `bson:"totalTokens" json:"totalTokens"`
+	TotalCost   float64   `bson:"totalCost" json:"totalCost"`
 }
 
 type Logger struct {
 	client *mongo.Client
 	db     *mongo.Database
 	logger *log.Logger
-	mu     sync.Mutex
 }
 
 func NewLogger() (*Logger, error) {
@@ -73,12 +71,11 @@ func NewLogger() (*Logger, error) {
 	}, nil
 }
 
-func (l *Logger) CreateBatch(name string) (primitive.ObjectID, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
+func (l *Logger) CreateBatch(id, description string) (primitive.ObjectID, error) {
 	batch := Batch{
-		CreatedAt: time.Now(),
+		ID:          id,
+		Description: description,
+		CreatedAt:   time.Now(),
 	}
 
 	result, err := l.db.Collection("batches").InsertOne(context.TODO(), batch)
@@ -86,14 +83,11 @@ func (l *Logger) CreateBatch(name string) (primitive.ObjectID, error) {
 		return primitive.NilObjectID, err
 	}
 
-	l.logger.Printf("Created new batch: %s\n", name)
+	l.logger.Printf("Created new batch: %s\n", id)
 	return result.InsertedID.(primitive.ObjectID), nil
 }
 
 func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outputTokens int) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	entry := LogEntry{
 		BatchID:      batchID,
 		Timestamp:    time.Now(),
@@ -139,16 +133,13 @@ func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outpu
 }
 
 func (l *Logger) GetLogs(batchID string) (map[string]interface{}, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	objectID, err := primitive.ObjectIDFromHex(batchID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid batchID: %v", err)
 	}
 
 	var logs []LogEntry
-	cursor, err := l.db.Collection("logs").Find(context.TODO(), bson.M{"batchId": objectID})
+	cursor, err := l.db.Collection("logs").Find(context.TODO(), bson.M{"_id": objectID})
 	if err != nil {
 		return nil, err
 	}
@@ -177,9 +168,6 @@ func (l *Logger) GetLogs(batchID string) (map[string]interface{}, error) {
 }
 
 func (l *Logger) GetBatches() ([]Batch, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	var batches []Batch
 	cursor, err := l.db.Collection("batches").Find(context.TODO(), bson.M{})
 	if err != nil {
