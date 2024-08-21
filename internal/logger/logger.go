@@ -41,11 +41,11 @@ type LogEntry struct {
 }
 
 type Batch struct {
-	ID          string    `bson:"_id" json:"id"`
-	Description string    `bson:"description" json:"description"`
-	CreatedAt   time.Time `bson:"createdAt" json:"createdAt"`
-	TotalTokens int       `bson:"totalTokens" json:"totalTokens"`
-	TotalCost   float64   `bson:"totalCost" json:"totalCost"`
+	ID          primitive.ObjectID `bson:"_id" json:"id"`
+	Description string             `bson:"description" json:"description"`
+	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
+	TotalTokens int                `bson:"totalTokens" json:"totalTokens"`
+	TotalCost   float64            `bson:"totalCost" json:"totalCost"`
 }
 
 type Logger struct {
@@ -55,8 +55,11 @@ type Logger struct {
 }
 
 func NewLogger() (*Logger, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
-	client, err := mongo.Connect(context.TODO(), clientOptions)
+	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -72,13 +75,23 @@ func NewLogger() (*Logger, error) {
 }
 
 func (l *Logger) CreateBatch(id, description string) (primitive.ObjectID, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return primitive.NilObjectID, fmt.Errorf("invalid id: %v", err)
+	}
+
 	batch := Batch{
-		ID:          id,
+		ID:          objectID,
 		Description: description,
+		TotalTokens: 0,
+		TotalCost:   0,
 		CreatedAt:   time.Now(),
 	}
 
-	result, err := l.db.Collection("batches").InsertOne(context.TODO(), batch)
+	result, err := l.db.Collection("batches").InsertOne(ctx, batch)
 	if err != nil {
 		return primitive.NilObjectID, err
 	}
@@ -88,6 +101,9 @@ func (l *Logger) CreateBatch(id, description string) (primitive.ObjectID, error)
 }
 
 func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outputTokens int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	entry := LogEntry{
 		BatchID:      batchID,
 		Timestamp:    time.Now(),
@@ -97,7 +113,7 @@ func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outpu
 		OutputTokens: outputTokens,
 	}
 
-	_, err := l.db.Collection("logs").InsertOne(context.Background(), entry)
+	_, err := l.db.Collection("logs").InsertOne(ctx, entry)
 	if err != nil {
 		return err
 	}
@@ -109,73 +125,63 @@ func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outpu
 	totalTokens := inputTokens + outputTokens
 	totalCost := calculateCost(pricing, inputTokens, outputTokens)
 
-	opts := options.Update().SetUpsert(true)
+	objectID, err := primitive.ObjectIDFromHex(batchID)
+	if err != nil {
+		return fmt.Errorf("invalid batchID: %v", err)
+	}
+
 	_, err = l.db.Collection("batches").UpdateOne(
-		context.Background(),
-		bson.M{"batchId": batchID},
+		ctx,
+		bson.M{"_id": objectID},
 		bson.M{
-			"$set": bson.M{
-				"createdAt": time.Now(),
-			},
 			"$inc": bson.M{
 				"totalTokens": totalTokens,
 				"totalCost":   totalCost,
 			},
 		},
-		opts,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update batch: %v", err)
 	}
 
 	l.logger.Printf("Logged entry to batch: %s\n", batchID)
 	return nil
 }
 
-func (l *Logger) GetLogs(batchID string) (map[string]interface{}, error) {
-	objectID, err := primitive.ObjectIDFromHex(batchID)
+func (l *Logger) GetLogs(batchID string) ([]LogEntry, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.M{"batchId": batchID}
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
+
+	cursor, err := l.db.Collection("logs").Find(ctx, filter, opts)
 	if err != nil {
-		return nil, fmt.Errorf("invalid batchID: %v", err)
+		return nil, fmt.Errorf("failed to query logs: %w", err)
 	}
+	defer cursor.Close(ctx)
 
 	var logs []LogEntry
-	cursor, err := l.db.Collection("logs").Find(context.TODO(), bson.M{"_id": objectID})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(context.TODO())
-
-	if err = cursor.All(context.TODO(), &logs); err != nil {
-		return nil, err
+	if err = cursor.All(ctx, &logs); err != nil {
+		return nil, fmt.Errorf("failed to decode logs: %w", err)
 	}
 
-	var batch Batch
-	err = l.db.Collection("batches").FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&batch)
-	if err != nil {
-		return nil, err
-	}
-
-	result := map[string]interface{}{
-		"logs": logs,
-		"batchInfo": map[string]interface{}{
-			"totalTokens": batch.TotalTokens,
-			"totalCost":   batch.TotalCost,
-		},
-	}
-
-	l.logger.Printf("Retrieved %d logs and batch info for batch: %s\n", len(logs), batchID)
-	return result, nil
+	l.logger.Printf("Retrieved %d logs for batch: %s", len(logs), batchID)
+	return logs, nil
 }
 
 func (l *Logger) GetBatches() ([]Batch, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var batches []Batch
-	cursor, err := l.db.Collection("batches").Find(context.TODO(), bson.M{})
+	cursor, err := l.db.Collection("batches").Find(ctx, bson.M{})
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(context.TODO())
+	defer cursor.Close(ctx)
 
-	if err = cursor.All(context.TODO(), &batches); err != nil {
+	if err = cursor.All(ctx, &batches); err != nil {
 		return nil, err
 	}
 
@@ -183,9 +189,30 @@ func (l *Logger) GetBatches() ([]Batch, error) {
 	return batches, nil
 }
 
+func (l *Logger) GetBatch(batchID string) (Batch, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	objectID, err := primitive.ObjectIDFromHex(batchID)
+	if err != nil {
+		return Batch{}, fmt.Errorf("invalid batchID: %v", err)
+	}
+
+	var batch Batch
+	err = l.db.Collection("batches").FindOne(ctx, bson.M{"_id": objectID}).Decode(&batch)
+	if err != nil {
+		return Batch{}, err
+	}
+
+	l.logger.Printf("Retrieved batch: %s\n", batchID)
+	return batch, nil
+}
+
 func (l *Logger) Close() {
 	if l.client != nil {
-		l.client.Disconnect(context.TODO())
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		l.client.Disconnect(ctx)
 	}
 }
 

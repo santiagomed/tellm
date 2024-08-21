@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/santiagomed/tellm/internal/logger"
 )
 
@@ -83,8 +83,8 @@ func (s *Server) HandleGetBatches(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) HandleBatch(w http.ResponseWriter, r *http.Request) {
-	batchId := strings.TrimPrefix(r.URL.Path, "/")
+func (s *Server) HandleGetLogs(w http.ResponseWriter, r *http.Request) {
+	batchId := r.URL.Query().Get("batch")
 	logs, err := s.logger.GetLogs(batchId)
 	if err != nil {
 		log.Printf("Failed to retrieve logs: %v", err)
@@ -94,6 +94,19 @@ func (s *Server) HandleBatch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+func (s *Server) HandleGetBatch(w http.ResponseWriter, r *http.Request) {
+	batchId := chi.URLParam(r, "batchId")
+	batch, err := s.logger.GetBatch(batchId)
+	if err != nil {
+		log.Printf("Failed to retrieve batch: %v", err)
+		http.Error(w, "Failed to retrieve batch", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(batch)
 }
 
 func (s *Server) HandleCreateBatch(w http.ResponseWriter, r *http.Request) {

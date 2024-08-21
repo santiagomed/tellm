@@ -40,9 +40,10 @@ func main() {
 	}))
 
 	// Routes
-	r.Get("/log", s.HandleLog)
+	r.Post("/logs", s.HandleLog)
+	r.Get("/logs", s.HandleGetLogs)
 	r.Get("/batches", s.HandleGetBatches)
-	r.Get("/batches/{batchId}", s.HandleBatch)
+	r.Get("/batches/{batchId}", s.HandleGetBatch)
 	r.Post("/batches", s.HandleCreateBatch)
 
 	log.Println("Server starting on :8000")

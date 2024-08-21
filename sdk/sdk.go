@@ -38,7 +38,7 @@ func (c *Client) Log(batch, prompt, response, model string, inputTokens, outputT
 	data.Set("input_tokens", strconv.Itoa(inputTokens))
 	data.Set("output_tokens", strconv.Itoa(outputTokens))
 
-	resp, err := http.PostForm(c.BaseURL+"/log", data)
+	resp, err := http.PostForm(c.BaseURL+"/logs", data)
 	if err != nil {
 		return fmt.Errorf("failed to send log: %w", err)
 	}
