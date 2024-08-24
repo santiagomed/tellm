@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/santiagomed/tellm/internal/logger"
@@ -58,7 +60,10 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 		outputTokens: outputTokens,
 	}
 
-	if err := s.logger.Log(e.batch, e.prompt, e.response, e.model, e.inputTokens, e.outputTokens); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := s.logger.Log(ctx, e.batch, e.prompt, e.response, e.model, e.inputTokens, e.outputTokens); err != nil {
 		log.Printf("Failed to log entry: %v", err)
 		http.Error(w, "Failed to log entry", http.StatusInternalServerError)
 		return
@@ -68,7 +73,10 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetBatches(w http.ResponseWriter, r *http.Request) {
-	batches, err := s.logger.GetBatches()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batches, err := s.logger.GetBatches(ctx)
 	if err != nil {
 		log.Printf("Failed to retrieve batches: %v", err)
 		http.Error(w, "Failed to retrieve batches", http.StatusInternalServerError)
@@ -85,7 +93,10 @@ func (s *Server) HandleGetBatches(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleGetLogs(w http.ResponseWriter, r *http.Request) {
 	batchId := r.URL.Query().Get("batch")
-	logs, err := s.logger.GetLogs(batchId)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	logs, err := s.logger.GetLogs(ctx, batchId)
 	if err != nil {
 		log.Printf("Failed to retrieve logs: %v", err)
 		http.Error(w, "Failed to retrieve logs", http.StatusInternalServerError)
@@ -98,7 +109,10 @@ func (s *Server) HandleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleGetBatch(w http.ResponseWriter, r *http.Request) {
 	batchId := chi.URLParam(r, "batchId")
-	batch, err := s.logger.GetBatch(batchId)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batch, err := s.logger.GetBatch(ctx, batchId)
 	if err != nil {
 		log.Printf("Failed to retrieve batch: %v", err)
 		http.Error(w, "Failed to retrieve batch", http.StatusInternalServerError)
@@ -113,7 +127,10 @@ func (s *Server) HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("id")
 	description := r.FormValue("description")
 
-	batchID, err := s.logger.CreateBatch(id, description)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batchID, err := s.logger.CreateBatch(ctx, id, description)
 	if err != nil {
 		log.Printf("Failed to create batch: %v", err)
 		http.Error(w, "Failed to create batch", http.StatusInternalServerError)

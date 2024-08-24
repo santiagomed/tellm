@@ -13,19 +13,46 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type ModelPrice struct {
-	Input, Output float64
+type ModelInfo struct {
+	Name   string  `bson:"name" json:"name"`
+	Lab    string  `bson:"lab" json:"lab"`
+	Input  float64 `bson:"input" json:"input"`
+	Output float64 `bson:"output" json:"output"`
 }
 
-var modelPrices = map[string]ModelPrice{
-	"gpt-4o": {
-		Input:  5,
-		Output: 15,
-	},
-	"gpt-4o-mini": {
-		Input:  0.15,
-		Output: 0.6,
-	},
+type ModelInfoMap map[string]ModelInfo
+
+var modelPrices ModelInfoMap
+
+func init() {
+	modelPrices = ModelInfoMap{
+		"gpt-4o": {
+			Name:   "gpt-4o",
+			Lab:    "OpenAI",
+			Input:  5,
+			Output: 15,
+		},
+		"gpt-4o-mini": {
+			Name:   "gpt-4o-mini",
+			Lab:    "OpenAI",
+			Input:  0.15,
+			Output: 0.6,
+		},
+		"claude-3-5-sonnet-20240620": {
+			Name:   "claude-3-5-sonnet-20240620",
+			Lab:    "Anthropic",
+			Input:  3,
+			Output: 15,
+		},
+	}
+}
+
+func (m ModelInfoMap) GetModelInfo(model string) (ModelInfo, error) {
+	info, exists := m[model]
+	if !exists {
+		return ModelInfo{}, fmt.Errorf("model not found: %s", model)
+	}
+	return info, nil
 }
 
 var perTokens = 1000000
@@ -36,16 +63,20 @@ type LogEntry struct {
 	Timestamp    time.Time `bson:"timestamp" json:"timestamp"`
 	Prompt       string    `bson:"prompt" json:"prompt"`
 	Response     string    `bson:"response" json:"response"`
+	ModelInfo    ModelInfo `bson:"modelInfo" json:"modelInfo"`
 	InputTokens  int       `bson:"inputTokens" json:"inputTokens"`
+	InputCost    float64   `bson:"inputCost" json:"inputCost"`
 	OutputTokens int       `bson:"outputTokens" json:"outputTokens"`
+	OutputCost   float64   `bson:"outputCost" json:"outputCost"`
 }
 
 type Batch struct {
 	ID          primitive.ObjectID `bson:"_id" json:"id"`
 	Description string             `bson:"description" json:"description"`
-	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
 	TotalTokens int                `bson:"totalTokens" json:"totalTokens"`
-	TotalCost   float64            `bson:"totalCost" json:"totalCost"`
+	InputCost   float64            `bson:"inputCost" json:"inputCost"`
+	OutputCost  float64            `bson:"outputCost" json:"outputCost"`
+	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
 }
 
 type Logger struct {
@@ -74,10 +105,7 @@ func NewLogger() (*Logger, error) {
 	}, nil
 }
 
-func (l *Logger) CreateBatch(id, description string) (primitive.ObjectID, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (l *Logger) CreateBatch(ctx context.Context, id, description string) (primitive.ObjectID, error) {
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return primitive.NilObjectID, fmt.Errorf("invalid id: %v", err)
@@ -87,7 +115,8 @@ func (l *Logger) CreateBatch(id, description string) (primitive.ObjectID, error)
 		ID:          objectID,
 		Description: description,
 		TotalTokens: 0,
-		TotalCost:   0,
+		InputCost:   0,
+		OutputCost:  0,
 		CreatedAt:   time.Now(),
 	}
 
@@ -100,34 +129,49 @@ func (l *Logger) CreateBatch(id, description string) (primitive.ObjectID, error)
 	return result.InsertedID.(primitive.ObjectID), nil
 }
 
-func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outputTokens int) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func (l *Logger) Log(ctx context.Context, batchID, prompt, response, model string, inputTokens, outputTokens int) error {
+	var objectID primitive.ObjectID
+	_, err := l.GetBatch(ctx, batchID)
+	if err != nil {
+		// create batch
+		objectID, err = l.CreateBatch(ctx, batchID, "")
+		if err != nil {
+			return err
+		}
+	}
+
+	modelInfo, err := modelPrices.GetModelInfo(model)
+	if err != nil {
+		return err
+	}
+
+	inputCost := calculateCost(modelInfo.Input, inputTokens)
+	outputCost := calculateCost(modelInfo.Output, outputTokens)
 
 	entry := LogEntry{
 		BatchID:      batchID,
 		Timestamp:    time.Now(),
 		Prompt:       prompt,
 		Response:     response,
+		ModelInfo:    modelInfo,
+		InputCost:    inputCost,
+		OutputCost:   outputCost,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 	}
 
-	_, err := l.db.Collection("logs").InsertOne(ctx, entry)
+	_, err = l.db.Collection("logs").InsertOne(ctx, entry)
 	if err != nil {
 		return err
 	}
 
-	pricing := modelPrices[model]
-	if pricing == (ModelPrice{}) {
-		return fmt.Errorf("model not found: %s", model)
-	}
 	totalTokens := inputTokens + outputTokens
-	totalCost := calculateCost(pricing, inputTokens, outputTokens)
 
-	objectID, err := primitive.ObjectIDFromHex(batchID)
-	if err != nil {
-		return fmt.Errorf("invalid batchID: %v", err)
+	if objectID == primitive.NilObjectID {
+		objectID, err = primitive.ObjectIDFromHex(batchID)
+		if err != nil {
+			return fmt.Errorf("invalid batchID: %v", err)
+		}
 	}
 
 	_, err = l.db.Collection("batches").UpdateOne(
@@ -136,7 +180,8 @@ func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outpu
 		bson.M{
 			"$inc": bson.M{
 				"totalTokens": totalTokens,
-				"totalCost":   totalCost,
+				"inputCost":   inputCost,
+				"outputCost":  outputCost,
 			},
 		},
 	)
@@ -148,10 +193,7 @@ func (l *Logger) Log(batchID, prompt, response, model string, inputTokens, outpu
 	return nil
 }
 
-func (l *Logger) GetLogs(batchID string) ([]LogEntry, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (l *Logger) GetLogs(ctx context.Context, batchID string) ([]LogEntry, error) {
 	filter := bson.M{"batchId": batchID}
 	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
 
@@ -170,10 +212,7 @@ func (l *Logger) GetLogs(batchID string) ([]LogEntry, error) {
 	return logs, nil
 }
 
-func (l *Logger) GetBatches() ([]Batch, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (l *Logger) GetBatches(ctx context.Context) ([]Batch, error) {
 	var batches []Batch
 	cursor, err := l.db.Collection("batches").Find(ctx, bson.M{})
 	if err != nil {
@@ -186,39 +225,37 @@ func (l *Logger) GetBatches() ([]Batch, error) {
 	}
 
 	l.logger.Printf("Retrieved %d batches\n", len(batches))
+	if batches == nil {
+		return []Batch{}, nil
+	}
 	return batches, nil
 }
 
-func (l *Logger) GetBatch(batchID string) (Batch, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (l *Logger) GetBatch(ctx context.Context, batchID string) (Batch, error) {
 	objectID, err := primitive.ObjectIDFromHex(batchID)
 	if err != nil {
-		return Batch{}, fmt.Errorf("invalid batchID: %v", err)
+		return Batch{}, fmt.Errorf("invalid batchID: %w", err)
 	}
 
 	var batch Batch
 	err = l.db.Collection("batches").FindOne(ctx, bson.M{"_id": objectID}).Decode(&batch)
 	if err != nil {
-		return Batch{}, err
+		if err == mongo.ErrNoDocuments {
+			return Batch{}, fmt.Errorf("batch not found: %s", batchID)
+		}
+		return Batch{}, fmt.Errorf("error retrieving batch: %w", err)
 	}
 
-	l.logger.Printf("Retrieved batch: %s\n", batchID)
+	l.logger.Printf("Retrieved batch: %s", batchID)
 	return batch, nil
 }
 
-func (l *Logger) Close() {
+func (l *Logger) Close(ctx context.Context) {
 	if l.client != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
 		l.client.Disconnect(ctx)
 	}
 }
 
-// Implement this function based on your pricing model
-func calculateCost(pricing ModelPrice, inputTokens, outputTokens int) float64 {
-	totalCost := (float64(inputTokens) / float64(perTokens)) * pricing.Input
-	totalCost += (float64(outputTokens) / float64(perTokens)) * pricing.Output
-	return totalCost
+func calculateCost(pricePerMillion float64, tokens int) float64 {
+	return (float64(tokens) / float64(perTokens)) * pricePerMillion
 }
