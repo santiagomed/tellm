@@ -57,28 +57,6 @@ func (m ModelInfoMap) GetModelInfo(model string) (ModelInfo, error) {
 
 var perTokens = 1000000
 
-type LogEntry struct {
-	ID           string    `bson:"_id,omitempty" json:"id,omitempty"`
-	BatchID      string    `bson:"batchId" json:"batchId"`
-	Timestamp    time.Time `bson:"timestamp" json:"timestamp"`
-	Prompt       string    `bson:"prompt" json:"prompt"`
-	Response     string    `bson:"response" json:"response"`
-	ModelInfo    ModelInfo `bson:"modelInfo" json:"modelInfo"`
-	InputTokens  int       `bson:"inputTokens" json:"inputTokens"`
-	InputCost    float64   `bson:"inputCost" json:"inputCost"`
-	OutputTokens int       `bson:"outputTokens" json:"outputTokens"`
-	OutputCost   float64   `bson:"outputCost" json:"outputCost"`
-}
-
-type Batch struct {
-	ID          primitive.ObjectID `bson:"_id" json:"id"`
-	Description string             `bson:"description" json:"description"`
-	TotalTokens int                `bson:"totalTokens" json:"totalTokens"`
-	InputCost   float64            `bson:"inputCost" json:"inputCost"`
-	OutputCost  float64            `bson:"outputCost" json:"outputCost"`
-	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
-}
-
 type Logger struct {
 	client *mongo.Client
 	db     *mongo.Database
@@ -129,35 +107,35 @@ func (l *Logger) CreateBatch(ctx context.Context, id, description string) (primi
 	return result.InsertedID.(primitive.ObjectID), nil
 }
 
-func (l *Logger) Log(ctx context.Context, batchID, prompt, response, model string, inputTokens, outputTokens int) error {
+func (l *Logger) Log(ctx context.Context, req EntryRequest) error {
 	var objectID primitive.ObjectID
-	_, err := l.GetBatch(ctx, batchID)
+	_, err := l.GetBatch(ctx, req.BatchID)
 	if err != nil {
-		// create batch
-		objectID, err = l.CreateBatch(ctx, batchID, "")
+		objectID, err = l.CreateBatch(ctx, req.BatchID, "")
 		if err != nil {
 			return err
 		}
 	}
 
-	modelInfo, err := modelPrices.GetModelInfo(model)
+	modelInfo, err := modelPrices.GetModelInfo(req.Model)
 	if err != nil {
 		return err
 	}
 
-	inputCost := calculateCost(modelInfo.Input, inputTokens)
-	outputCost := calculateCost(modelInfo.Output, outputTokens)
+	inputCost := calculateCost(modelInfo.Input, req.InputTokens)
+	outputCost := calculateCost(modelInfo.Output, req.OutputTokens)
 
 	entry := LogEntry{
-		BatchID:      batchID,
+		BatchID:      req.BatchID,
 		Timestamp:    time.Now(),
-		Prompt:       prompt,
-		Response:     response,
+		Prompt:       req.Prompt,
+		Name:         req.Name,
+		Response:     req.Response,
 		ModelInfo:    modelInfo,
 		InputCost:    inputCost,
 		OutputCost:   outputCost,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
+		InputTokens:  req.InputTokens,
+		OutputTokens: req.OutputTokens,
 	}
 
 	_, err = l.db.Collection("logs").InsertOne(ctx, entry)
@@ -165,10 +143,10 @@ func (l *Logger) Log(ctx context.Context, batchID, prompt, response, model strin
 		return err
 	}
 
-	totalTokens := inputTokens + outputTokens
+	totalTokens := req.InputTokens + req.OutputTokens
 
 	if objectID == primitive.NilObjectID {
-		objectID, err = primitive.ObjectIDFromHex(batchID)
+		objectID, err = primitive.ObjectIDFromHex(req.BatchID)
 		if err != nil {
 			return fmt.Errorf("invalid batchID: %v", err)
 		}
@@ -189,7 +167,7 @@ func (l *Logger) Log(ctx context.Context, batchID, prompt, response, model strin
 		return fmt.Errorf("failed to update batch: %v", err)
 	}
 
-	l.logger.Printf("Logged entry to batch: %s\n", batchID)
+	l.logger.Printf("Logged entry to batch: %s\n", req.BatchID)
 	return nil
 }
 

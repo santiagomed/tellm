@@ -1,12 +1,18 @@
 package sdk
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
+
+	"github.com/santiagomed/tellm/internal/logger"
 )
+
+type LogEntry = logger.LogEntry
+type EntryRequest = logger.EntryRequest
+type BatchRequest = logger.BatchRequest
 
 // Client represents the SDK client for interacting with the llmlog server
 type Client struct {
@@ -18,27 +24,14 @@ func NewClient(baseURL string) *Client {
 	return &Client{BaseURL: baseURL}
 }
 
-// LogEntry represents a single log entry
-type LogEntry struct {
-	Timestamp    string `json:"timestamp"`
-	Prompt       string `json:"prompt"`
-	Response     string `json:"response"`
-	Model        string `json:"model"`
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-}
-
 // Log sends a log entry to the server
-func (c *Client) Log(batch, prompt, response, model string, inputTokens, outputTokens int) error {
-	data := url.Values{}
-	data.Set("batch", batch)
-	data.Set("prompt", prompt)
-	data.Set("response", response)
-	data.Set("model", model)
-	data.Set("input_tokens", strconv.Itoa(inputTokens))
-	data.Set("output_tokens", strconv.Itoa(outputTokens))
+func (c *Client) Log(req EntryRequest) error {
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
 
-	resp, err := http.PostForm(c.BaseURL+"/logs", data)
+	resp, err := http.Post(c.BaseURL+"/logs", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to send log: %w", err)
 	}
@@ -63,7 +56,7 @@ func (c *Client) GetLogs(batch string) ([]LogEntry, error) {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var logs []LogEntry
+	var logs []logger.LogEntry
 	decoder := json.NewDecoder(resp.Body)
 	if err := decoder.Decode(&logs); err != nil {
 		return nil, fmt.Errorf("failed to decode logs: %w", err)
@@ -96,8 +89,13 @@ func (c *Client) GetBatches() ([]string, error) {
 }
 
 // CreateBatch creates a new batch on the server
-func (c *Client) CreateBatch(id, description string) (string, error) {
-	resp, err := http.PostForm(c.BaseURL+"/batches", url.Values{"id": {id}, "description": {description}})
+func (c *Client) CreateBatch(req BatchRequest) (string, error) {
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := http.Post(c.BaseURL+"/batches", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create batch: %w", err)
 	}
@@ -107,5 +105,5 @@ func (c *Client) CreateBatch(id, description string) (string, error) {
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	return id, nil
+	return req.ID, nil
 }

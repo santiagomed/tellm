@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,38 +31,18 @@ func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inputTokens, err := strconv.Atoi(r.FormValue("input_tokens"))
-	if err != nil {
-		log.Printf("Invalid input tokens: %v", err)
-		http.Error(w, "Invalid input tokens", http.StatusBadRequest)
+	var e logger.EntryRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
+		log.Printf("Failed to decode JSON: %v", err)
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
-	}
-	outputTokens, err := strconv.Atoi(r.FormValue("output_tokens"))
-	if err != nil {
-		log.Printf("Invalid output tokens: %v", err)
-		http.Error(w, "Invalid output tokens", http.StatusBadRequest)
-		return
-	}
-	e := struct {
-		batch        string
-		prompt       string
-		response     string
-		model        string
-		inputTokens  int
-		outputTokens int
-	}{
-		batch:        r.FormValue("batch"),
-		prompt:       r.FormValue("prompt"),
-		response:     r.FormValue("response"),
-		model:        r.FormValue("model"),
-		inputTokens:  inputTokens,
-		outputTokens: outputTokens,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := s.logger.Log(ctx, e.batch, e.prompt, e.response, e.model, e.inputTokens, e.outputTokens); err != nil {
+	if err := s.logger.Log(ctx, e); err != nil {
 		log.Printf("Failed to log entry: %v", err)
 		http.Error(w, "Failed to log entry", http.StatusInternalServerError)
 		return
@@ -124,13 +103,17 @@ func (s *Server) HandleGetBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("id")
-	description := r.FormValue("description")
+	var b logger.BatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		log.Printf("Failed to decode JSON: %v", err)
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	batchID, err := s.logger.CreateBatch(ctx, id, description)
+	batchID, err := s.logger.CreateBatch(ctx, b.ID, b.Description)
 	if err != nil {
 		log.Printf("Failed to create batch: %v", err)
 		http.Error(w, "Failed to create batch", http.StatusInternalServerError)
