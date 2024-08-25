@@ -44,6 +44,12 @@ func init() {
 			Input:  3,
 			Output: 15,
 		},
+		"gpt-4o-2024-08-06": {
+			Name:   "gpt-4o-2024-08-06",
+			Lab:    "OpenAI",
+			Input:  2.5,
+			Output: 10,
+		},
 	}
 }
 
@@ -83,15 +89,16 @@ func NewLogger() (*Logger, error) {
 	}, nil
 }
 
-func (l *Logger) CreateBatch(ctx context.Context, id, description string) (primitive.ObjectID, error) {
-	objectID, err := primitive.ObjectIDFromHex(id)
+func (l *Logger) CreateBatch(ctx context.Context, batchReq BatchRequest) (primitive.ObjectID, error) {
+	objectID, err := primitive.ObjectIDFromHex(batchReq.ID)
 	if err != nil {
 		return primitive.NilObjectID, fmt.Errorf("invalid id: %v", err)
 	}
 
 	batch := Batch{
 		ID:          objectID,
-		Description: description,
+		CreatedBy:   batchReq.CreatedBy,
+		Name:        batchReq.Name,
 		TotalTokens: 0,
 		InputCost:   0,
 		OutputCost:  0,
@@ -103,7 +110,7 @@ func (l *Logger) CreateBatch(ctx context.Context, id, description string) (primi
 		return primitive.NilObjectID, err
 	}
 
-	l.logger.Printf("Created new batch: %s\n", id)
+	l.logger.Printf("Created new batch: %s\n", batchReq.ID)
 	return result.InsertedID.(primitive.ObjectID), nil
 }
 
@@ -111,7 +118,12 @@ func (l *Logger) Log(ctx context.Context, req EntryRequest) error {
 	var objectID primitive.ObjectID
 	_, err := l.GetBatch(ctx, req.BatchID)
 	if err != nil {
-		objectID, err = l.CreateBatch(ctx, req.BatchID, "")
+		l.logger.Printf("Batch with id %s not found, creating new one\n", req.BatchID)
+		objectID, err = l.CreateBatch(ctx, BatchRequest{
+			ID:        req.BatchID,
+			Name:      req.Name,
+			CreatedBy: req.CreatedBy,
+		})
 		if err != nil {
 			return err
 		}
@@ -128,6 +140,7 @@ func (l *Logger) Log(ctx context.Context, req EntryRequest) error {
 	entry := LogEntry{
 		BatchID:      req.BatchID,
 		Timestamp:    time.Now(),
+		CreatedBy:    req.CreatedBy,
 		Prompt:       req.Prompt,
 		Name:         req.Name,
 		Response:     req.Response,

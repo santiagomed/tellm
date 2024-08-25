@@ -23,6 +23,29 @@ func NewServer(logger *logger.Logger, templateDir string) *Server {
 	}
 }
 
+func (s *Server) HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
+	var b logger.BatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		log.Printf("Failed to decode JSON: %v", err)
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batchID, err := s.logger.CreateBatch(ctx, b)
+	if err != nil {
+		log.Printf("Failed to create batch: %v", err)
+		http.Error(w, "Failed to create batch", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"batch_id": batchID.String()})
+}
+
 func (s *Server) HandleLog(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received request: %s %s", r.Method, r.URL.Path)
 	if r.Method != http.MethodPost {
@@ -100,27 +123,4 @@ func (s *Server) HandleGetBatch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(batch)
-}
-
-func (s *Server) HandleCreateBatch(w http.ResponseWriter, r *http.Request) {
-	var b logger.BatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		log.Printf("Failed to decode JSON: %v", err)
-		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	batchID, err := s.logger.CreateBatch(ctx, b.ID, b.Description)
-	if err != nil {
-		log.Printf("Failed to create batch: %v", err)
-		http.Error(w, "Failed to create batch", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"batch_id": batchID.String()})
 }

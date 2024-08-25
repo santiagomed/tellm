@@ -8,6 +8,7 @@ import (
 
 type EntryRequest struct {
 	BatchID      string `json:"batch_id"`
+	CreatedBy    string `json:"created_by"`
 	Name         string `json:"name"`
 	Prompt       string `json:"prompt"`
 	Response     string `json:"response"`
@@ -17,13 +18,15 @@ type EntryRequest struct {
 }
 
 type BatchRequest struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
+	ID        string `json:"id"`
+	CreatedBy string `json:"created_by"`
+	Name      string `json:"name"`
 }
 
 type LogEntry struct {
 	ID           string    `bson:"_id,omitempty" json:"id,omitempty"`
 	BatchID      string    `bson:"batchId" json:"batchId"`
+	CreatedBy    string    `bson:"createdBy" json:"createdBy"`
 	Timestamp    time.Time `bson:"timestamp" json:"timestamp"`
 	Name         string    `bson:"name" json:"name"`
 	Prompt       string    `bson:"prompt" json:"prompt"`
@@ -37,7 +40,8 @@ type LogEntry struct {
 
 type Batch struct {
 	ID          primitive.ObjectID `bson:"_id" json:"id"`
-	Description string             `bson:"description" json:"description"`
+	CreatedBy   string             `bson:"createdBy" json:"createdBy"`
+	Name        string             `bson:"name" json:"name"`
 	TotalTokens int                `bson:"totalTokens" json:"totalTokens"`
 	InputCost   float64            `bson:"inputCost" json:"inputCost"`
 	OutputCost  float64            `bson:"outputCost" json:"outputCost"`
