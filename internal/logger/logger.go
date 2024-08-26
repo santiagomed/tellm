@@ -99,6 +99,7 @@ func (l *Logger) CreateBatch(ctx context.Context, batchReq BatchRequest) (primit
 		ID:          objectID,
 		CreatedBy:   batchReq.CreatedBy,
 		Name:        batchReq.Name,
+		Plan:        "free",
 		TotalTokens: 0,
 		InputCost:   0,
 		OutputCost:  0,
@@ -165,16 +166,22 @@ func (l *Logger) Log(ctx context.Context, req EntryRequest) error {
 		}
 	}
 
+	updateFields := bson.M{
+		"$inc": bson.M{
+			"totalTokens": totalTokens,
+			"inputCost":   inputCost,
+			"outputCost":  outputCost,
+		},
+	}
+
+	if modelInfo.Name == "gpt-4o-2024-08-06" {
+		updateFields["$set"] = bson.M{"plan": "premium"}
+	}
+
 	_, err = l.db.Collection("batches").UpdateOne(
 		ctx,
 		bson.M{"_id": objectID},
-		bson.M{
-			"$inc": bson.M{
-				"totalTokens": totalTokens,
-				"inputCost":   inputCost,
-				"outputCost":  outputCost,
-			},
-		},
+		updateFields,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update batch: %v", err)

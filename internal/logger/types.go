@@ -42,6 +42,7 @@ type Batch struct {
 	ID          primitive.ObjectID `bson:"_id" json:"id"`
 	CreatedBy   string             `bson:"createdBy" json:"createdBy"`
 	Name        string             `bson:"name" json:"name"`
+	Plan        string             `bson:"plan" json:"plan"`
 	TotalTokens int                `bson:"totalTokens" json:"totalTokens"`
 	InputCost   float64            `bson:"inputCost" json:"inputCost"`
 	OutputCost  float64            `bson:"outputCost" json:"outputCost"`
