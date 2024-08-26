@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,10 @@ import (
 )
 
 func main() {
+	if os.Getenv("MONGODB_URI") == "" {
+		log.Fatal("MONGODB_URI is not set")
+	}
+
 	l, err := logger.NewLogger()
 	if err != nil {
 		log.Fatal(err)
