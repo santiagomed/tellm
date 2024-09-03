@@ -9,13 +9,31 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/joho/godotenv"
 	"github.com/santiagomed/tellm/internal/logger"
 	"github.com/santiagomed/tellm/internal/server"
 )
 
+func loadEnv() error {
+	return godotenv.Load()
+}
+
+func checkEnvVars() bool {
+	return os.Getenv("MONGODB_URI") != ""
+}
+
 func main() {
-	if os.Getenv("MONGODB_URI") == "" {
-		log.Fatal("MONGODB_URI is not set")
+	// Try to load env vars and check them
+	_ = loadEnv()
+	if !checkEnvVars() {
+		// If env vars are not set, try loading again
+		if err := loadEnv(); err != nil {
+			log.Fatal("Error loading .env file")
+		}
+		// Check env vars again
+		if !checkEnvVars() {
+			log.Fatal("MONGODB_URI is not set")
+		}
 	}
 
 	l, err := logger.NewLogger()
